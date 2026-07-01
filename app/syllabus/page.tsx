@@ -22,6 +22,7 @@ type Subject = {
 export default function SyllabusPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [newSubjectName, setNewSubjectName] = useState("");
   const [addingTopicFor, setAddingTopicFor] = useState<string | null>(null);
@@ -34,10 +35,20 @@ export default function SyllabusPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/subjects");
-    const data = await res.json();
-    setSubjects(data);
-    setLoading(false);
+    setError(null);
+    try {
+      const res = await fetch("/api/subjects");
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Server returned ${res.status}: ${text.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      setSubjects(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load subjects");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -114,7 +125,13 @@ export default function SyllabusPage() {
 
       {loading && <p className="text-sm text-neutral-500">Loading...</p>}
 
-      {!loading && subjects.length === 0 && (
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+          {error}
+        </p>
+      )}
+
+      {!loading && !error && subjects.length === 0 && (
         <p className="text-sm text-neutral-500">No subjects yet. Add one above.</p>
       )}
 
