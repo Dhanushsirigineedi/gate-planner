@@ -4,6 +4,10 @@
 
 import { AllocationType } from "@prisma/client";
 
+// Single global speed factor, per user's decision (no per-topic override).
+export const DEFAULT_SPEED_FACTOR = 1.5;
+
+
 export function lectureToReal(lectureHrs: number, speedFactor: number): number {
   return lectureHrs / speedFactor;
 }
