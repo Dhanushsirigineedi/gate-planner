@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Single row, app-wide constants
+model GlobalSettings {
+  id          Int      @id @default(1)
+  speedFactor Float    @default(1.5) // lecture-hrs watched per real hour
+  examDate   DateTime
+}
+
+model Subject {
+  id     String  @id @default(cuid())
+  name   String
+  topics Topic[]
+}
+
+model Topic {
+  id        String  @id @default(cuid())
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id])
+  name      String
+
+  // canonical units: lecture-time for lectureHrs, real-time for pyq/revision
+  lectureHrs  Float
+  pyqHrs      Float
+  revisionHrs Float
+
+  // cached rollups, recomputed from TopicProgress on write
+  lectureHrsDone  Float @default(0)
+  pyqHrsDone      Float @default(0)
+  revisionHrsDone Float @default(0)
+
+  allocations WeeklyAllocation[]
+
+  @@index([subjectId])
+}
+
+model WeeklyPlan {
+  id           String        @id @default(cuid())
+  weekStart    DateTime      // Monday, real calendar date
+  nominatedHrs Float         // real hours you commit to studying this week
+  disturbances Disturbance[]
+  allocations  WeeklyAllocation[]
+
+  @@unique([weekStart])
+}
+
+model Disturbance {
+  id           String     @id @default(cuid())
+  weeklyPlanId String
+  weeklyPlan   WeeklyPlan @relation(fields: [weeklyPlanId], references: [id])
+  description  String
+  start        DateTime
+  end          DateTime
+  hrsLost      Float      // real hours
+}
+
+enum AllocationType {
+  LECTURE
+  PYQ
+  REVISION
+}
+
+enum AllocationStatus {
+  OPEN
+  DONE
+  RESCHEDULED // fully carried forward, zero remaining here
+}
+
+model WeeklyAllocation {
+  id           String            @id @default(cuid())
+  weeklyPlanId String
+  weeklyPlan   WeeklyPlan        @relation(fields: [weeklyPlanId], references: [id])
+  topicId      String
+  topic        Topic             @relation(fields: [topicId], references: [id])
+  type         AllocationType
+
+  // LECTURE type -> lecture-time units. PYQ/REVISION -> real-time units.
+  hrsAllocated Float
+  hrsCompleted Float             @default(0)
+  status       AllocationStatus  @default(OPEN)
+
+  dailyBlocks  DailyBlock[]
+
+  @@index([weeklyPlanId])
+  @@index([topicId])
+}
+
+model TemplateBlock {
+  id        String   @id @default(cuid())
+  dayOfWeek Int      // 0=Sun ... 6=Sat
+  title     String
+  start     String   // "HH:mm"
+  end       String   // "HH:mm"
+
+  dailyBlocks DailyBlock[]
+}
+
+model DailyBlock {
+  id                 String            @id @default(cuid())
+  date               DateTime          // calendar date, real time
+  start              DateTime
+  end                DateTime          // derived: allocation hrs / speedFactor for LECTURE type
+
+  weeklyAllocationId String?
+  weeklyAllocation   WeeklyAllocation? @relation(fields: [weeklyAllocationId], references: [id])
+
+  templateBlockId    String?
+  templateBlock      TemplateBlock?    @relation(fields: [templateBlockId], references: [id])
+
+  isTemplateOverride Boolean           @default(false) // true = "removed for this date only"
+
+  progress           TopicProgress[]
+
+  @@index([date])
+}
+
+// Per-block, per-day log entry. Sums roll up into Topic.*Done and WeeklyAllocation.hrsCompleted
+model TopicProgress {
+  id           String     @id @default(cuid())
+  dailyBlockId String
+  dailyBlock   DailyBlock @relation(fields: [dailyBlockId], references: [id])
+  topicId      String
+  loggedAt     DateTime   @default(now())
+
+  // units match the allocation's type (lecture-time for LECTURE, real-time otherwise)
+  hrsLogged    Float
+
+  @@index([dailyBlockId])
+  @@index([topicId])
+}
